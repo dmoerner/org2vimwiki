@@ -1,0 +1,965 @@
+Aspnes, notes from Spring 2015.
+
++ Since I am reading this after finishing K & R, my notes are often
+  more sparse if I feel like I already understand.
+
+* 3. The Linux Programming Environment
+** 3.2. Text Editors
+*** 3.2.2. Vim
+Normal Mode:
+
+D: Delete to the end of line (faster than d$)
+Ctrl+R: Redo
+<<, >>: Outdent or indent the current line one tabstop.
+
+Insert mode:
+Ctrl+P, Ctrl+N: completion commands that expand a partial word to
+something elsewhere in the buffer. 
+Ctrl+O, Ctrl+I: Ctrl+O jumps to the last place your cursor was. Ctrl+I
+jumps back.
+
+** 3.3. Compilation tools
+*** 3.3.1. Gcc
+To get warnings from gcc, use:
+gcc -g3 -Wall -pedantic
+
+The default -g is -g2. -g3 includes "extra information, such as all
+the macro definitions present in the program. Some debuggers support
+macro expansion when you use -g3." (man 1 gcc)
+
+To compile with C99, use --std=c99 or just call c99. Note that -ansi
+is equivalent to --std=c90.
+
+*** 3.3.2. Make
+
+$(RM) is predefined to "rm -f".
+
+If you accidentally have leading spaces instead of tabs, you can use
+"unexpand" to convert them.
+
+** 3.4. Debugging Tools
+
+*** 3.4.2. Assertions
+
+Every non-trivial C program should include <assert.h>, which gives the
+assert macro (K & R B6). Assert tests if a condition is true and halts
+with an error if it isn't. You get this even if you compile with
+optimizations off.
+
+*** 3.4.3. The GNU debugger gdb
+
+M-x gdb on emacs. First use M-x compile. (Make sure to enable
+debugging, I used c99 -g3.)
+
+Then the basic idea: Put a break in some function, say make, then run
+the program to get there. Then display some variable, which will
+display it on each progression, and then run "n" or "s" to go through
+the next line, or to step through the next call.
+
+You can break on a function name or a line number.
+
+Some commands:
+
+list will list lines.
+
+continue will continue until the end of the program, a breakpoint, or
+a fatal error. Continue x will skip over x breakpoints.
+
+finish will run until the next function returns.
+
+set disable-randomization off will enable ASLR inside of gdb;
+otherwise it is disabled.
+
+run arguments will run it with arguments. You can also redirect: run <
+filename. 
+
+
+Some tricks:
+
+If you use assert, it will fail after the assert line. Use up a few
+times to get out to the assert line, then print the variables you want
+to check.
+
+Note that you can also try with the graphical frontend ddd.
+
+If you have an infinite loop, you can run gdb, wait, and then
+Ctrl+C. Something is probably wrong with your index variables. Use
+display to keep an eye on them, and do "next" a few times.
+
+Sometimes you have pointer mistakes that involve mysterious changes to
+seemingly unrelated variables. You can catch this with conditional
+breakpoints. But note that you can only put conditional breakpoints on
+particular lines. The syntax is "break $line if $condition". But note
+that a breakpoint stops before line it is on executes. You can't go
+"back in time" if you go to far. Just set an earlier breakpoint and
+run again.
+
+*** 3.4.4. Valgrind
+
+Syntax: valgrind ./program
+
+This will run your program and produce a report of allocations and
+de-allocations, as well as warn you about common errors.
+
+You can suppress non-error output with -q. You can turn on more tests
+with --tool=memcheck and --leak-check=yes. You can also have verbose
+output: -v. Note that all these options must come before the name of
+your program, otherwise they will be passed to the program as an
+argument.
+
+Valgrind doesn't require -g or -g3, but it gives more informative
+output in that case.
+
+Valgrind is not very easy to understand from its output. Mainly useful
+for a line and for warnings. Check your memory allocation and
+initializations.
+
+*** 3.4.5. Debugging output
+
+Using a debugger or assert is better, according to Aspnes. If you must
+print debugging output, use fprintf to stderr, which is unbuffered. If
+you must use printf, always call fflush(stdout) to clear out the
+buffer. Wrap debugging output in an #ifdef so you can turn it off.
+
+** 3.5. Performance Tuning
+
+Here cf. Chapter 7 of K & P. Here are some linux-specific examples.
+
+** 3.5.1. time
+
+You can use "time". Real time is the real time; user time is the
+amount of time the program runs, system time is the amount of time the
+operating system spends supporting your programs. Note that it's not
+the case that real = user + sys. Your system might be simultaneously
+running other programs.
+
+** 3.5.2. gprof
+
+Compile with -pg in gcc, which inserts profiling code that counts how
+many times a function is called and how long (on average) each call
+takes. You should also build with --static because the profile isn't
+very good with dynamically shared libraries.
+
+This generates a file gmon.out (and makes your code slightly
+slower). You then run gprof $programname. (Not gprof gmon.out, which
+confused me the first time I tried this.) This outputs a table that
+shows where you are using your time.
+
+One nice trick here: If you are trying to put a function call in the
+evaluation argument of a for loop, take it out and do it once and
+store it in a variable.
+
+You can also use optimization flags. Note that optimization does not
+make that much of a difference for any of the prime algorithms
+described here. And of course it works better if you leave easy
+optimizations around for it!
+
+
+
+* 4. The C programming language
+
+To compile with C99, use c99 or gcc --std=c99. gcc alone produces
+gcc's own dialect of C, which is ansi C plus some extras. For maxmum
+portability, use gcc --ansi -pedantic.
+
+Why use C99? A big reason is to get // comments. Another reason is
+that you can use variables to initialize arrays at runtime. (So you
+can do int x[n];.) Without this you have to on your own allocate
+memory for the array, and free it later.
+
+** 4.1. Structure of a C program
+
+We can use fprintf to print error messages; the syntax is
+fprintf(stream, "string", variables). 
+
+Expressions are normally bare functions whose value is discarded, or
+variable assignments. (Obvious, but good to point out.)
+
+A note about assembly: Your beautiful ifs and elses turn into jumps
+and conditional jumps, which are dangerous gotos. You can see this
+with gcc -S. 
+
+Assembly isn't the last step - it's actually designed to be
+human-readable. The assembler translates the assembly language into
+machine code.
+
+What the linker does is fill in missing references to the addresses of
+functions and global variables.
+
+** 4.2. Numeric data types
+The address space might be larger than the RAM. On 64-bit machines,
+the address space is 2^64 bytes. A memory mapper, built into the CPU,
+translates the large addresses of the used parts of address space to
+the smaller addresses of actual RAM locations. Regions of memory that
+haven't been used for a while will be swapped out to disk. But note
+that disk writes are about 10 million times slower than memory.
+
+Floats are implemented by having a fixed-size mantissa, which is an
+integer, and an exponent that multiplies the mantissa by 2^x for some
+x.
+
+We represent all other data by conversion to integer or floating-point
+numbers. Text characters are written as small integers, using the
+ASCII conversion table. Otherwise we might use unicode. The color of a
+pixel might be given by 3 8-bit integers.
+
+Most structured types are a thin layer of abstraction on top of
+pointers.
+
+*** 4.2.1. Integer types in C
+**** 4.2.1.1. Basic integer types
+Standard on 32-bit machines:
+
+Name      Typical size  Signed by default?
+char      8 bits        unspecified (so declare it yourself!)
+short     16            signed
+int       16            signed
+long      32            signed
+long long 64            signed 
+
+Long long is in C99, but not ANSI.
+
+Two's complement: a positive value x is represented as the unsigned
+value x, whereas -x is represented as the unsigned value 2^n - x.
++ Oh duh, that's the simplest explanation of it I've seen.
+
+One advantage of this is that we can use the exact same addition and
+subtraction for both signed and unsigned values. But one disadvantage
+is that we can't check for overflow from the CPU itself, since it
+doesn't know if we are adding unsigned or signed ints.
+
+One important point about getchar and getc: These return EOF, defined
+as -1 in <stdio.h>, for end of file. But 255, ÿ, in the ISO Latin-1
+alphabet and Unicode, has the same representation as a char. So you
+should use an int to store the output of getchar and getc.
+
+**** 4.2.1.2. C99 fixed-width types
+C99 provides <stdint.h>, which defines integer types with known size
+independent of machine architecture. Syou can use int8_t for signed
+char that holds 9 bits, or uint64_t to get an unsigned long long, or
+everything in between. 
+
+There are also types that try to minimize some parameter;
+int_least16_t is a signed type with at least 16 bits, chosen to
+minimize space. int_fast16_t is a signed type with at least 16 bits,
+chosen to minimize time. There are also symbolic constants that give
+minimum and maximum values for all these types.
+
+These are all defined as aliases for standard integer types using
+typedef. The benefit of using them is portability across machine, the
+disadvantage is portability across compilers, which might not all
+implement C99.
+
+If you need to manipulate types defined in <stdint.h>, then you should
+use <inttypes.h>. Note that the latter includes the former, so you
+only need the latter. It gives macros which expand to the format
+string for printing the relevant type. So for instance, instead of
+printf("%ld", val);, we write printf("%" PRIu64, val). This takes
+advantage of C concatenating adjacent string constants.
++ Aspnes doesn't go into details about these macros, I'll just have
+  to read the header to learn them.
+
+*** 4.2.2. size_t and ptrdiff_t
+
+These are type aliases provided by <stddef.h> to represent the return
+types of the sizeof operator and pointer subtraction respectively. 
+
+On 32-bit architectures, size_t will be equivalent to uint32_t, or
+just unsigned int; ptrdiff_t will be equivalent to int32_t (int). On
+64-bit, it's the 64-bit ints respectively.
+
+You will most often see size_t as an argument to malloc as the number
+of bytes to allocate.
+
+Note that <stdlib.h> already includes <stddef.h>.
+
+**** 4.2.2.1. Integer constants
+
+You can write these in four ways: decimal notation, octal (leading 0),
+hexadecimal (leading 0x), using a character constant. For the first 3
+you can insist that it is unsigned or long by putting a u or an l or
+an ll (or L or LL) after it. By default, these are only signed ints.
+
++ I don't quite get why we'd normally have to do this. I mean, won't I
+  initialize some sort of variable with such a number, and then it's
+  just the type of the variable itself? I suppose that it gives a hint
+  when you use it in a macro definition.
+
+But there is no way to write binary directly.
+
+***** 4.2.2.1.1. Naming constants
+
+Having a lot of numeric constants is generally a bad sign. You should
+assign them names to make clear what their name is. We do this with
+preprocessor #defines. You should be parenthesized so it is treated as
+a single constant.
+
+"In general, any time you have a non-trivial constant in a program, it
+should be #defined." Things like array dimensions, special tags, or
+return values from functions, or maximum or minimum values, or standard
+mathematical constants.
++ Note that something else - maybe it was K & P - suggested using
+  const ints instead of #defines.
+
+The convention is to write them in all caps to remind the user they
+are macros.
+
+**** 4.2.2.2. Integer operators
+***** 4.2.2.2.1. Arithmetic operators
+With +, -, and * on integers, if the result is outside the range, it
+will be truncated instead of producing an error.
+
++ I don't quite understand the example. I would just have to work
+  through it on pen and paper to see why things are truncated in that
+  way.
+
+Division of two integers also truncates, and for positive integers it
+will always round down.
+
+Prior to C99, if numerator or denominator was negative, the rounding
+behavior was unspecified. In C99, you always round towards 0.
+
+Finally, there is the remainder operator, %. The sign of the modulus
+is ignored; the sign of the dividend carries over to the
+remainder. (This guarantees that y == x*(y/x) + y%x is always true.)
+
+***** 5.2.2.2.2. Bitwise operators
+~ bit wise negation
+& bitwise and
+| bitwise or
+^ bitwise xor
+
+We can use & to strip off bottom bits; e.g., the mask 0x0f will set
+everything to zero but keep the right four bits.
+
+<< left shift
+>> right shift
+
+Left shift by y produces the value x * 2^y, ignoring overflow, and
+filling in zeroes from the right. In the other direction, the behavior
+depends on whether x is signed or unsigned. For signed values, it
+shifts in additional copies of the leftmost bit.
++ This is different from what other sources said, which said it
+  depended on the implementation. 
+
+Note, that if y is negative, it reverses the direction of the shift.
+
+You can combine left shift with masking to print binary. So x & (1<<i)
+will be nonzero iff x has a 1 in the i-th place. They use this to
+implement a print_binary function:
+
+void print_binary(unsigned int n)
+{
+  unsigned int mask = 0;
+  // create a bit pattern 100...
+  mask = ~mask ^ (~mask >> 1);
+  for(; mask != 0; mask >>= 1)
+    putchar ((n & mask) ? '1' : '0');
+}
+
+Why does that "groteseque hack" work? It's because ~mask is not 1,
+it's 111111.... So then you xor 11... with 011..., since we right
+shift ~mask by 1.
+
+We can set the i-th bit of x to 1 by doing x | (1 << i). We can set
+the i-th bit of x to 0 by doing x & ~(1 << i). You can't do x & 0 <<
+i, because then you will also zero everything else.
+
+***** 4.2.2.2.3. Logical operators
+
+There are also three logical operators that work on the truth-values
+of integers, where 0 is false and anything else is true. && (logical
+and), || (logical or), ! (logical not). The result of these is always
+0 or 1. We evaluate arguments left to right and ignore the second
+argument if the first determines the answer.
+
+Since anything but 0 is true, 1 && 2 is 1.
+
+There is also the ternary operator ?:, which is like if-then-else.
+
+***** 4.2.2.2.4. Relational operators
+
+You often use logical operators with relational operators or
+comparisons. Remember that == tests for equality. Note that gcc -Wall
+can warn you about tests that assign values instead of testing for
+equality.
+
+**** 4.2.2.3. Converting to and from strings
+
+To input or output integer values, you need to convert them to and
+from strings. To convert from a string, use atoi or atol from
+<stdlib.h>.  C99 also provides atoll. Note htat these routines signal
+an error by returning 0, so be careful.
++ How are you careful with this sort of situation? I guess you can
+  check if the string's first value is a character or something like
+  that. 
+
+You can use output with printf, or fprintf for a file, or sprintf for
+a string.
+
+*** 4.2.3. Floating-point types
+
+Whereas integers represent values within their range exactly,
+flaoting-point tpes only give an approximation to the correct value,
+although with a much larger range.
+
+On x86 cpus, float is 32 bits, double is 64 bits, and long double is
+80 bits. 
+
+Math math libraries operate on and return doubles, but there are often
+float versions, like sinf.
+
+**** 4.2.3.1 Floating point basics
+
+The basic idea: We represent x as m * b^e. The base is almost always
+2, and on most floating-point representations the mantissa will be
+scaled between 1 and b, so between 1 and 2.
+
+As with ints, negative values typically are handled by adding a sign
+bit.
+
++ The fact that we use base 2 shows why this is almost always an
+  approximation.
+  
+**** 4.2.3.2. Floating-point constants
+
+Any number with a decimal point in it will be interpreted by the
+compiler as a float, although you need at least one digit after the
+decimal. You can also specify floats in scientific notation.
+
+**** 4.2.3.3. Operators
+
+You can't use %, or bitwise operators. Note that when an operator has
+operands of different types, the less-precise one will be expanded.
+
+Note that there may be round-off error.
+
+You can use casts to force floating-point division.
+
+**** 4.2.3.4. Conversion to and from integer types
+
+Mix use will convert integer to floating-point. You can also use
+casts. 
+
+Casts bind more tightly than arithmetic operations.
+
+**** 4.2.3.5. The IEEE-754 floating-point standard
+
+All modern computing systems follow this pattern.
+Bit 31: sign
+Bits 30-23: Exponent in excess-127 binary notation. This means that  
+Bits 22-0: Mantissa, with the leading 1 stripped off.
+
+Excess-127 notation: 01111111 == 0, 10000000 == 1, 01111110 == -1,
+etc.
++ I don't understand this pattern really. Oh, thanks to stack overflow
+  it's easy! You just subtract 127 from the integer to get the value!
+
+To represent 0 we just have all 0's, since we can't represent it in
+the standard form, since there is no 1 before the decimal
+point. (There is also a -0 with 1 and then all 0's.) Numbers with
+exponents of 11111111 = 255 = 2^128 are used to represent non-numeric
+quantities (NaN, not a number), returned by operations like 0.0/0.0.
+
+What this means is that we can calculate the maximal and minimal
+floats.
+32-bit: 1.17549435e-38 and 3.40282347e+38
+64-bit: 1.7976931348623157e+308 to 2.2250738585072014e-308
+
+Note that Intel processors internally use an 80-bit floating-point
+format for all operations.
+
+**** 4.2.3.6. Error
+
+There is likely to be round-off error because the mantissa is
+truncated to a fixed number of bits. Default float output formats
+generally don't show this, since they produce fewer digits than are
+stored internally.
+
+Avoid error by using doubles. Modern CPUs will probably calclulate
+this in the same time, although they use more memory.
+
+Note that we can get exact representations of certain integers, so we
+can get a wider range of precise integers.
+
+Error makes it hard to test for equality. Instead you should test if
+the absolute value of their difference is less than the some
+application-defined tolerance.
+
+**** 4.2.3.7. Reading and writing floating-point numbers
+
+Any numeric constant with a decimal point is treated as a double by
+default; append F to treat it as a float. You can also add e or E to
+add a base-10 exponent.
+
+You can read and write them with printf and scanf. There are a lot of
+ways to print floats. Basically, remember %lf and %f, which are for
+doubles and floats.
+
+**** 4.2.3.8. Non-finite numbers in C
+
+This section is written strangely hesitantly. It seems like all of
+this stuff is undefined, but <math.h> may have some macros.
+
+**** 4.2.3.9. The math library
+
+K & R B4
+
+All the standard functions take double, although there are some extras
+with similar names that use similar floats.
+
+Since the math library is not part of <stdlib.h>, you need to both
+link against it and link against it with -lm.
+
+** 4.3. Operator precedence
+
+Page 53 in K & R. The big thing is that unary operators and assignment
+operators associate right to left. 
+
+Note that casts aren't on this table, but casts associate more
+strongly than arithmetic.
+
+** 4.4. Programming style
+Nothing much to say here, other than that I actually understand the
+"bad" example.
+
+Here is his style guide:
+Comments
+
+[ ] Undocumented module.
+[ ] Undocumented function other than main.
+[ ] Underdocumented function: return value or args not described.
+[ ] Undocumented program input and output (when main is provided).
+[ ] Undocumented struct or union components.
+[ ] Undocumented #define.
+[ ] Failure to cite code taken from other sources.
+[ ] Insufficient comments.
+[ ] Excessive comments.
+
+Naming
+
+[ ] Meaningless function name.
+[ ] Confusing variable name.
+[ ] Inconsistent variable naming style (UgLyName, ugly_name, NAME___UGLY_1).
+[ ] Inconsistent use of capitalization to distinguish constants.
+
+Whitespace
+
+[ ] Inconsistent or misleading indentation.
+[ ] Spaces not used or used misleadingly to break up complicated expressions.
+[ ] Blank lines not used or used misleadingly to break up long function bodies.
+
+Macros
+
+[ ] Non-trivial constant with no symbolic name.
+[ ] Failure to parenthesize expression in macro definition.
+[ ] Dependent constant not written as expression of earlier constant.
+[ ] Underdocumented parameterized macro.
+
+Global variables
+
+[ ] Inappropriate use of a global variable.
+
+Functions
+
+[ ] Kitchen-sink function that performs multiple unrelated tasks.
+[ ] Non-void function that returns no useful value.
+[ ] Function with too many arguments.
+
+Code organization
+
+[ ] Lack of modularity.
+[ ] Function used in multiple source files but not declared in header file.
+[ ] Internal-use-only function not declared static.
+[ ] Full struct definition in header files when components should be hidden.
+[ ] #include "file.c"
+[ ] Substantial repetition of code.
+
+Miscellaneous
+
+[ ] Other obstacle to readability not mentioned above.
+
+** 4.5. Variables
+Variables are a direct abstraction of physical memory locations.
+*** 4.5.1. Memory
+The idea is that memory consists of many bytes of storage, each of
+which has an address which is itself a sequence of bits. For C's
+purposes, think of it as a large address space that the CPU can store
+and load things from, given an address. What the compiler adds is the
+ability to give names to particular regions of the address space, and
+fine address space for us to use.
+*** 4.5.2. Variables as names
+A variable is a name given in a program for some region of
+memory. Each variable has a type, which tells the compiler how big a
+region of memory to allocate and how to treat the bits stored there
+under various operations.
+    
+Variables also have scope: A limit on where the name is meaningful,
+and extent: the duration of the variable's existence. ("Local" is a
+matter of scope, "automatic" a matter of duration, cf. 4.5.5.1)
+**** 4.5.2.2. Variable names
+
+The evolution of programming languages:
+
+11101001001001: physical addresses represented as bits
+
+#FC27: Assembly language address represented in hex
+
+A1$: String variable in Basic: One uppercase letter, followed by a
+number, followed by $ for a string or % for an int (no way to declare
+variable types otherwise).
+
+IFNXG7: Fortran variable name, in the days of 6-character, all-caps
+variable names. I means it's an integer.
+
+i, j, c, count, top_of_tack, accumulatedTimeinFlight. This last style
+is called camel case. Use either that style or the _ style.
+
+prgcGradeDatabase: Hungarian notation, where the type of the variable
+is encoded in the first few characters. Note that this isn't checked
+by the compiler.
+
+Variables should be self-documenting through their names.
+
+Some variable name conventions:
+- Ordinary variables and functions are lowercased or camel-cased
+- User-defined types are capitalized
+- Constants created with #define or enum are in all-caps.
+
+*** 4.5.3. Using variables
+
+You can actually nest assignments:
+int x, y;
+x = (y = 2) * 3; 
+
+This takes advantage of assignments returning the new lvalue's value.
+
+*** 4.5.5. Storage class qualifiers
+
+Local variables inside functions and function parameters have local
+scope and automatic extent. The alternatives are static extent or
+global scope. 
+
+Use extern when you want to use a global variable defined in another
+source file. The extern gives the compiler a hint as to its type. If
+you want to limit a global variable to a file, make it static.
+
+*** 4.5.6. Marking variables as constant
+Const declares a variable to be constant
+**** 4.5.6.1. Pointers to const
+A pointer to a region that should not be modified should be declared
+with const type:
+
+const char *string = "You cannot change me.";
+
+So then you can't assign string[0] to something else, etc.
+
+You can still make the pointer point to something else. If you want
+the string to be const, then you need:
+
+const char * const string = "You cannot change me.";
+
+Note that this only means you can't make "string" point to somewhere
+else. If you have some other way to get at the memory involved in the
+string, you can change those memory locations.
+
+(Now as far as I can tell, const char *string is equivalent to char
+*string if you initialize with a string assignment. I can only make a
+non-string literal with string[], rather than *string.)
+
+** 4.6. Input and Output
+
+*** 4.6.2. Reading and writing single characters
+
+Recall: the return type of getchar() is an int, because if needs to return all the unsigned characters, or -1 if EOF.
+
+Putchar() also takes int as its argument; it truncates to convert from inst to unsigned char. It also returns int - the value written if successful, or EOF if write failed.
+
+*** 4.6.3. Formatted I/O
+
+Differences between printf and scanf:
+1. scanf needs addresses for its variable elements.
+2. scanf does not automatically convert small integers to int and floats to doubles, so you need to be more careful about specifying argument type.
+3. scanf eats whitespace, except for %c.
+4. (Scanf sucks, and you generally just shouldn't use it.)
+
+*** 4.6.4. Rolling your own I/O routines
+
+Good to know: A recursive descent parser is generally not written by hand in C, but rather using a parser generator (like bison, yacc, antlr).
+
+*** 4.6.5. File I/O
+
+perror(filename) prints a message about the last failed library routine; it's a good thing to use with fopen, e.g.:
+FILE *f;
+if ((f = fopen(file, "r")) == 0) {
+    perror(f);
+    exit(2);
+}
+
++ Note that Aspnes has a typo here, it should be perror(f), not perror(filename), in his example.
+
+Another nice idiom: scanf returns the number of found matches, and strips whitespace. So we can read all the numbers from a file with:
+while(fscanf("%d", &x) == 1) {
+    process(x);
+}
+
+== 4.7. Statements and control structures ==
+
+=== 4.7.1. Simple statements ===
+
+The simplest kind of statement in C is an expression followed by a semicolon. Its value is computed and discarded. 
+
+The jump statements return, break, continue, and goto are also simple statements.
+
+=== 4.7.2. Compound statements ===
+
+==== 4.7.2.1. Conditionals ====
+
+Switch cases must be constant integer values. Remember to always break after the last case, and always put in a default, as a matter of defensive programming.
+
+Aspnes says the following: "Though switch statements are better than deeply nested if/else-if constructions, it is often even better to organize the different cases as data rather than code. We'll see examples of this when we talk about function pointers."
+
+==== 4.7.2.2. Loops ====
+
+Remember: any do...while loop can be expressed as a while loop by just making an extra copy of the body in front of the loop. The for loop is just syntactic sugar for a while loop.
+
+Break and continue operate on the innermost enclosing loop. To break out of bigger loops, use goto. This is the only acceptable use of goto in normal code. (Or, implement the next loops in a function, and return at that point.)
+
+Do...while is most useful if you want to try something, and then try again if it failed. (Obviously, be careful with this - if it fails every time, you will loop forever.)
+
+Check out this crazy example of using switch fall-through: https://en.wikipedia.org/wiki/Duff%27s_device The way this works is to try to unroll the loop by implementing multiple instructions in the body. But we have to make sure that we don't do extra instructions when the number of operations to be performed isn't divisible by some magic number. The solution is to use a switch statement to do the remainder of instructions first, and then unroll the loop. His own example just takes advantage of crazy switch semantics to express this in more compact form.
+
++ Note that Wikipedia says this might not always be faster; removing it from XFree86 4.0 actually sped up performance.
+
+== 4.8. Functions ==
+
+Recall that C calls by value, so function arguments are copied into local variables.
+
+=== 4.8.2. When to write a function ===
+
+There are two goals for making a function:
+1. Encapsulation: Let some well-defined task be carried out independently, so that its implementation is separate from the rest of the code.
+2. Code re-use.
+
+These goals can also be trumped by making your code understandable. A function should be describable in a single, simple sentence. Functions should only do one thing. But they also shouldn't be too simple.
+
+(It is an error to try to use a function returning void in an assignment.)
+
+=== 4.8.4. The return statement ===
+
+Note that return may or may not be returned in parentheses. And also note that if a function is declared void, you can just end it with:
+    return;
+
+=== 4.8.5. Function declarations and modules ===
+
+By default, functions have global scope.
+
+If a file doesn't contain a declaration, the compiler will assume it is declared as: int func(). (Return type int, no checking for arguments.) You should not rely on this, and always declare functions in an include file.
+
+Note that a file.c that contains a function definition should also, as a matter of good policy, also include file.h that contains that function's declaration. We want to do this so the compiler can cerify that the two declarations match one another.
+
+=== 4.8.6. Static functions ===
+
+By default, all functions are global. You can restrict access to the current file by declaring a function static.
+
+It's good policy to declare functions static unless you intend to make them available, so as to avoid namespace conflicts.
+
+Why would you want to have a static function? Well, a good example is when you have the following setup:
+
+main.c:
+#include "function.h"
+function(a);
+
+function .h:
+void function (int a);
+
+function.c:
+static void functionhelper(int a)
+{ ; }
+
+void function (int a)
+{
+    functionhelper(a);
+}
+
+Here, function.c uses helper functions. There is no reason to clutter the namespace with them. (Because functions are global by default, even though functionhelper isn't declared in function.h, main.c could still try to access it.)
+
+=== 4.8.8. Mechanics of function calls ===
+
+When a function is called, the CPU must store its previous state to know where to go back to after it's done, and it needs to allocate space for function arguments and local variables.
+
+Some of this information is stored in registers, memory locations built into the CPU itself, but most will go on the stack. (Which in implementation actually generally grows downward, although we call recent additions the "top" of the stack.) The top of the stack is located in a special register called the stack pointer.
+
+So a typical function call looks like this:
+1. Push the current instruction pointer, giving the address of the next line of machine code to be executed, onto the stack.
+2. Copy arguments to the functions into designated registers or onto the stack. This is CPU-dependent, but generally the first few arguments are copied into registers.
+3. Set the instruction pointer to the first instruction in the function code.
+4. The function code allocates additional space on the stack to hold its local variables, and if it wants to use registers, save what's currently in them.
+5. Function body is executed until you hit return.
+6. Saved registers are restored from the stack, return value is copied to a standard register, and the instruction and stack pointer are restored to how they were before the function call.
+
+Note, though, that you can save local variables by declaring them static. These are stored with global variables outside the stack with unbounded extent, but have scope limited to the function that declares them.
+
+** 4.10. Strings
+
+Two standard ways to represent strings: as a delimited string, where
+we mark the end by a special character. The advantage is that we need
+only one byte to give the length of a string, and we can manipulate
+strings using pointer operations, and some common operations can be
+performed very quickly. The limitation is that the delimiter can't
+appear inside the string.
+
++ Isn't there also the limitation that the string's length can only be
+  found by progressing all the way through it until you find the end?
+  I guess the benefit comes from the pointer approach.
+
+As a counted string, the string data is supplemented or prefixed with
+a count of the number of characters in the string. The advantage is
+that you can hold arbitrary data and quickly jump to the end of the
+length. The disadvantage is that we must make sure the count is
+correct and using more space to store the count.
+
++ Note that the fact that C chose the former explains why, in some
+  functions, it can be much easier if we pass both a string and the
+  length (when we know it in advance) as function arguments.
+
+*** 4.10.1. C strings
+
+C chose delimited strings, since they are simpler and take less
+space. A string is represented by a variable of type char *, which
+points to the zeroth character of the string.
+
+- Here's a paper criticizing this approach:
+  http://queue.acm.org/detail.cfm?id=2010365
+
+  Note that some of the criticisms are about work that has already
+  been achieved.
+
+  It turns out that counted strings were more common in programming
+  languages; delimited strings in assembly programs. By using
+  delimited strings they saved one byte of overhead on the PDP.
+
+  But a result is that people started adding terminated string
+  instructions to CPUs. But are those optimizations worth the costs?
+  One cost is that you can't just move around memory in chunks of size
+  unsigned long, as FreeBSD's libc does, because you can't risk
+  accessing things beyond the string. So you have to add a fixed cost
+  detection of corner cases.
+
+  If compilers know the length of a string, they can use the faster
+  memcpy instead of the slower strcpy that is written in the source
+  code. But then you have to spend the work developing the compiler in
+  this way. And you have to worry that the compiler might
+  over-optimize.
+
+  It's particularly bad from a security procedure. Things like gets
+  just assume the buffer will be large enough. Mitigation of these
+  risks has introduced costs in ASLR, in CPU hardware, and in hours of
+  analysis. 
+
+  It's also important to note that all languages are basically built
+  on POSIX and null-terminated strings, in things like open (3) and
+  getaddrinfo (3). You can't get rid of them just by switching to
+  another language.
+
+You can build your own counted strings using a struct. Scripting
+languages written in C (Perl, Python, PHP) use this approach
+internally. Tcl doesn't, which is why you shouldn't use it.
+
+*** 4.10.2. String constants
+
+Recall that 2 string constants separated only by whitespace will be
+concatenated by the compiler into a single one.
+
+*** 4.10.3. String buffers
+
+The problem with string buffers is that they are constants - you can't
+modify them. The solution is to use a buffer, an array of
+characters. This needs size of 1 + length of string, since you need
+room for the null, '\0'.
+
+**** 4.10.3.1 String buffers and the perils of gets
+
+The problem is that functions like strcpy, which are used with the
+library routine gets, don't check to see if the target buffer is big
+enough to hold what you are trying to copy. This lets people execute a
+buffer overrun attack to seize control of our program.
+
+If you do need to read a string from input, allocate the receiving
+buffer using malloc and expand it using realloc as needed. There's an
+example implementation.
+
+gets and scanf may overrun the buffer, fgets may truncate input, since
+you need to specify the length in advance. But this implementation
+must free the line when we're done with it.
+
+*** 4.10.4. Operations on strings
+
+C provides only a rudimentary string-processing library. 
+
+It would be very easy to write an implementation of strcpy, it's just
+one line:
+void strcpy2 (char *dest, const char *src)
+{
+  while(*dest++ = *src++);
+}
+
+(Note that the standard library implementation probably copies more
+than one character at a time.)
+
+None of this will help you, though, if there isn't actually enough
+memory at the destination to hold the string, or if it isn't
+null-delimited.
+
+If you know the length of the string, or only want the first n
+characters, you can use strncopy.
+
+*** 4.10.5. Finding the length of a string
+
+Note how this implementation works:
+int strlen(const char *s)
+{
+  for (int i = 0; *s; i++, s++);
+  return i;
+}
+
+Note that this takes advantage of the fact that the null character at
+the end of the string has value 0. So we can just use the dereferenced
+pointer itself as the test.
+
+Don't put strlen in the header of a loop, since it has to scan the
+whole string every time the test is done. This adds time proportional
+to the length of src to each iteration of the loop.
+
+*** 4.10.6. Comparing strings
+
+We can't just test s1 == s2, since this tests only whether the two
+pointers point to the same address. Instead, use strcmp, declared in
+string.h. This walks along both arguments until it hits a null on both
+and hits 0, or hits two different characters, and returns positive if
+the first is bigger and negative if the second is bigger.
+
++ Wow, so that means it produces a zero if they are the same! Need to
+  keep this in mind for tests. You need to test if the return value is
+  0. But the implementation makes sense.
+
+*** 4.10.7. Formatting output to strings
+
+You can write formatted output to a string buffer with sprintf. Just
+make sure the buffer you are writing to is big enough.
+
+*** 4.10.8. Dynamic allocation of strings
+
+Remember you need strlen(s) + 1 of memory with malloc. There is a C
+library called strdup which is not part of the C standard but which
+does this. (On my machine it's in glibc-headers.) It basically just wraps a
+malloc(strlen(s) + 1) around strcpy. 
+
+- Note that since we have strlen now, the glibc interpetation is
+  actually able to use memcpy. It's in /usr/include/bits/string2.h
+
+*** 4.10.9. Command-line arguments
+
+Pretty easy, argv is an pointer to a pointer to a char. Note that C
+terminates argv with a null, so argv[argc] always equals 0, a null
+pointer to char.
