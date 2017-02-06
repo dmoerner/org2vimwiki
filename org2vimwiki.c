@@ -14,13 +14,19 @@
  * to put an upper limit on line lengths. But that's just what I don't 
  * want to assume for these files.
  *
+ * The solution, implemented below, is to check if the first character
+ * of the file is *; if so, set the flags so that the loop knows we are
+ * in a header already.
+ *
  * Licensed under GPL v3+
  */
 
 #include <stdio.h>
-#include <error.h>
 #include <stdlib.h>
 
+/* Take an existing org file, and copy it to a new wiki file,
+ * converting headers as you go.
+ */
 void org2wiki(char *orgFilename, char *wikiFilename)
 {
     int c, nc;
@@ -42,7 +48,10 @@ void org2wiki(char *orgFilename, char *wikiFilename)
     int headerflag = 0; // Are we in the starting header?
     int headercount = 0; // How deep are we?
 
-    /* This is a bit hacky. I want to use character manipulation so I
+    /* If the first line of a file is a header, the loop below can't
+     * figure that out.
+     *
+     * This is a bit hacky. I want to use character manipulation so I
      * don't have to assume that the lines are a certain length. But
      * character manipulation presupposes we have a newline to test
      * if the next line is a header.
